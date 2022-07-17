@@ -1,8 +1,17 @@
 use stokio::net::{TcpListener, TcpStream};
 use stokio::runtime::Runtime;
 
-async fn process_socket(socket: TcpStream) {
-    todo!();
+async fn process_socket(mut socket: TcpStream) {
+    let mut req = [0; 4096];
+    let res = b"HTTP/1.1 200 OK\r\nContent-length: 12\r\n\r\nHello world\n";
+
+    loop {
+        let n = socket.read(&mut req).await.unwrap();
+        if n == 0 {
+            return;
+        }
+        socket.write_all(res).await.unwrap();
+    }
 }
 
 fn main() {
