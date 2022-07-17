@@ -19,6 +19,7 @@ pub struct Runtime {
 }
 
 /// Runtime handle
+#[derive(Clone)]
 pub struct Handle {
     inner: Rc<Inner>,
 }
@@ -69,7 +70,13 @@ impl Runtime {
 
     /// Execute the runtime until all tasks have completed
     pub fn run(&self) {
+        CURRENT.with(|c| {
+            *c.borrow_mut() = Some(self.handle.clone());
+        });
         self.handle.inner.scheduler.run();
+        CURRENT.with(|c| {
+            *c.borrow_mut() = None;
+        });
     }
 }
 
