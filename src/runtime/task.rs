@@ -47,6 +47,6 @@ impl Task {
 
 impl Drop for Task {
     fn drop(&mut self) {
-        println!("TODO: fix leak");
+        // TODO: don't leak
     }
 }

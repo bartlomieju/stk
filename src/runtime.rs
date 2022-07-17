@@ -1,8 +1,16 @@
+mod driver;
+use driver::Driver;
+
+pub(crate) mod io;
+
+mod scheduler;
+use scheduler::Scheduler;
+
 pub(crate) mod task;
 use task::{JoinHandle, Task};
 
 use std::cell::RefCell;
-use std::collections::VecDeque;
+
 use std::future::Future;
 use std::rc::Rc;
 
@@ -16,23 +24,33 @@ pub struct Handle {
 }
 
 struct Inner {
-    queue: RefCell<VecDeque<Task>>,
+    /// Executes tasks
+    scheduler: Scheduler,
+
+    /// Receives events from the OS and dispatches them.
+    io: io::Handle,
+
+    /// Holds scheduler & io state used to drive the runtime forward
+    driver: RefCell<Driver>,
 }
 
 thread_local!(static CURRENT: RefCell<Option<Handle>> = RefCell::new(None));
 
-const INITIAL_QUEUE_CAPACITY: usize = 256;
-
 impl Runtime {
     /// Create a new runtime
-    pub fn new() -> Runtime {
-        Runtime {
+    pub fn new() -> std::io::Result<Runtime> {
+        let (io_driver, io_handle) = io::driver()?;
+        let driver = Driver::new(io_driver);
+
+        Ok(Runtime {
             handle: Handle {
                 inner: Rc::new(Inner {
-                    queue: RefCell::new(VecDeque::with_capacity(INITIAL_QUEUE_CAPACITY)),
+                    scheduler: Scheduler::new(),
+                    io: io_handle,
+                    driver: RefCell::new(driver),
                 }),
             },
-        }
+        })
     }
 
     /// Spawn a task on the runtime
@@ -51,19 +69,7 @@ impl Runtime {
 
     /// Execute the runtime until all tasks have completed
     pub fn run(&self) {
-        loop {
-            let mut task = match self.next_scheduled_task() {
-                Some(task) => task,
-                None => return,
-            };
-
-            task.poll();
-        }
-    }
-
-    /// Return the next scheduled task
-    fn next_scheduled_task(&self) -> Option<Task> {
-        self.handle.inner.queue.borrow_mut().pop_front()
+        self.handle.inner.scheduler.run();
     }
 }
 
@@ -74,13 +80,20 @@ impl Handle {
         T: Future + 'static,
         T::Output: 'static,
     {
-        // Create the task harness
-        let (task, handle) = task::spawn(task);
+        self.inner.scheduler.spawn(task)
+    }
 
-        // Schedule the task for execution
-        self.inner.queue.borrow_mut().push_back(task);
+    /// Returns a reference to the I/O handle
+    pub(crate) fn io(&self) -> &io::Handle {
+        &self.inner.io
+    }
 
-        // Return the join handle
-        handle
+    #[track_caller]
+    pub(crate) fn with_current<R>(f: impl FnOnce(&Handle) -> R) -> R {
+        CURRENT.with(|current| {
+            let current = current.borrow();
+            let current = current.as_ref().expect("called from outside of runtime");
+            f(current)
+        })
     }
 }

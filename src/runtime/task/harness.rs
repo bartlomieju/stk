@@ -8,16 +8,27 @@ use std::task::{Context, Poll};
 
 /// Task harness
 #[repr(C)]
-pub(crate) struct Harness<T> {
+pub(crate) struct Harness<T: Future> {
     header: Header,
-    future: RefCell<T>,
+    state: RefCell<State<T>>,
+}
+
+enum State<T: Future> {
+    // The future is not yet complete
+    InProgress(T),
+
+    // The future is complete and we have the output
+    Complete(T::Output),
+
+    // The future output has been consumed.
+    Joined,
 }
 
 impl<T: Future> Harness<T> {
     pub(crate) fn new(header: Header, future: T) -> Harness<T> {
         Harness {
             header,
-            future: RefCell::new(future),
+            state: RefCell::new(State::InProgress(future)),
         }
     }
 
@@ -26,19 +37,28 @@ impl<T: Future> Harness<T> {
     }
 
     pub fn poll(&self) {
+        use State::*;
+
         // Build the waker
         let waker = waker_ref::<T>(&self.header);
         let mut cx = Context::from_waker(&waker);
 
-        let mut future = self.future.borrow_mut();
-        let future = &mut *future;
+        let mut state = self.state.borrow_mut();
+
+        let future = match &mut *state {
+            InProgress(future) => future,
+            _ => panic!("invalid task state"),
+        };
 
         // Safety: we don't move the future until it is dropped.
         let future = unsafe { Pin::new_unchecked(future) };
 
         // Poll the future
         match future.poll(&mut cx) {
-            Poll::Ready(_) => println!("DONE"),
+            Poll::Ready(_) => {
+                println!("TODO: handle join output");
+                *state = Joined;
+            }
             Poll::Pending => println!("pending"),
         }
     }
