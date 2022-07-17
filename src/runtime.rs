@@ -1,9 +1,6 @@
 pub(crate) mod task;
 use task::{JoinHandle, Task};
 
-mod vtable;
-use vtable::VTable;
-
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::future::Future;

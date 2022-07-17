@@ -1,4 +1,13 @@
-use crate::runtime::VTable;
+mod harness;
+use harness::Harness;
+
+mod header;
+use header::Header;
+
+mod vtable;
+use vtable::VTable;
+
+mod waker;
 
 use std::future::Future;
 use std::ptr::NonNull;
@@ -8,41 +17,31 @@ pub struct JoinHandle<T> {
 }
 
 pub(crate) struct Task {
-    inner: NonNull<Header>,
-}
-
-#[repr(C)]
-struct Inner<T> {
-    header: Header,
-    future: T,
-}
-
-#[repr(C)]
-struct Header {
-    /// Dynamic dispatch to future-specific functions.
-    vtable: &'static VTable,
+    header: NonNull<Header>,
 }
 
 pub(crate) fn spawn<T: Future>(future: T) -> (Task, JoinHandle<T::Output>) {
-    let inner = Box::new(Inner {
-        header: Header {
-            vtable: VTable::for_future::<T>(),
-        },
-        future,
-    });
+    let header = Header::new::<T>();
 
-    let inner = Box::into_raw(inner);
-    let inner = unsafe { NonNull::new_unchecked(inner as *mut Header) };
-    let task = Task { inner };
+    let harness = Box::new(Harness::new(header, future));
+    let harness = Box::into_raw(harness);
+    let header = unsafe { NonNull::new_unchecked(harness as *mut Header) };
 
-    let handle = JoinHandle { _p: std::marker::PhantomData, };
+    let task = Task { header };
+    let handle = JoinHandle {
+        _p: std::marker::PhantomData,
+    };
 
     (task, handle)
 }
 
 impl Task {
-    pub(crate) fn poll(&mut self) {
-        todo!();
+    pub(crate) fn poll(&self) {
+        self.header().poll();
+    }
+
+    fn header(&self) -> &Header {
+        unsafe { self.header.as_ref() }
     }
 }
 
