@@ -1,9 +1,10 @@
 use crate::runtime::task::{self, JoinHandle, Task};
+use crate::runtime::{Driver, Handle};
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::future::Future;
-use std::task::{RawWaker, Waker};
+use std::task::Waker;
 
 pub(crate) struct Scheduler {
     /// Queue of tasks scheduled to run
@@ -23,14 +24,18 @@ impl Scheduler {
         }
     }
 
-    pub(crate) fn run(&self) {
+    pub(crate) fn run(&self, handle: &Handle, driver: &mut Driver) {
         loop {
-            let task = match self.next_scheduled_task() {
-                Some(task) => task,
-                None => return,
-            };
+            loop {
+                let task = match self.next_scheduled_task() {
+                    Some(task) => task,
+                    None => break,
+                };
 
-            self.run_task(task);
+                self.run_task(task);
+            }
+
+            driver.park(handle, self).unwrap();
         }
     }
 

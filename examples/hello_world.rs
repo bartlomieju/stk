@@ -23,6 +23,7 @@ fn main() {
 
         loop {
             let (socket, _) = listener.accept().await.unwrap();
+            println!(" + Accepted socket");
             stokio::spawn(process_socket(socket));
         }
     });

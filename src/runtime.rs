@@ -70,10 +70,14 @@ impl Runtime {
 
     /// Execute the runtime until all tasks have completed
     pub fn run(&self) {
+        let mut driver = self.handle.inner.driver.borrow_mut();
+
         CURRENT.with(|c| {
             *c.borrow_mut() = Some(self.handle.clone());
         });
-        self.handle.inner.scheduler.run();
+
+        self.handle.inner.scheduler.run(&self.handle, &mut driver);
+
         CURRENT.with(|c| {
             *c.borrow_mut() = None;
         });

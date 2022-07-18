@@ -57,10 +57,9 @@ impl<T: Future> Harness<T> {
         // Poll the future
         match future.poll(&mut cx) {
             Poll::Ready(_) => {
-                println!("TODO: handle join output");
                 *state = Joined;
             }
-            Poll::Pending => println!("pending"),
+            Poll::Pending => {}
         }
     }
 }

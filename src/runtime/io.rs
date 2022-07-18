@@ -13,6 +13,8 @@ use std::cell::{Cell, RefCell};
 use std::io;
 use std::rc::Rc;
 
+pub(crate) use std::io::Result;
+
 pub(crate) struct Handle {
     /// Used to register new sockets w/ epoll
     mio: mio::Registry,
@@ -96,11 +98,34 @@ impl Handle {
             write_task: RefCell::new(None),
         });
 
+        entry.insert(resource.clone());
+
         Ok(Registration { resource })
     }
 }
 
-impl Driver {}
+impl Driver {
+    pub(crate) fn park(&mut self, handle: &Handle, scheduler: &Scheduler) -> io::Result<()> {
+        match self.mio.poll(&mut &mut self.events, None) {
+            Ok(_) => {}
+            Err(ref e) if e.kind() == io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(e),
+        }
+
+        let resources = handle.resources.borrow();
+
+        for event in self.events.iter() {
+            let resource = match resources.get(event.token().0) {
+                Some(resource) => resource,
+                None => continue,
+            };
+
+            resource.add_readiness(scheduler, Ready::from_mio(event));
+        }
+
+        Ok(())
+    }
+}
 
 impl Registration {
     /// Wait for an I/O readiness event
@@ -112,7 +137,7 @@ impl Registration {
             let ready = ready.intersection(interest);
 
             if ready.is_empty() {
-                if ready.is_readable() {
+                if interest.is_readable() {
                     // Get the runtime task associated with the current waker
                     let task = self
                         .resource
@@ -120,10 +145,11 @@ impl Registration {
                         .scheduler()
                         .waker_to_task(cx.waker())
                         .expect("TODO");
+
                     *self.resource.read_task.borrow_mut() = Some(task);
                 }
 
-                if ready.is_writable() {
+                if interest.is_writable() {
                     let task = self
                         .resource
                         .rt
@@ -169,7 +195,7 @@ impl Resource {
     // Called by the I/O driver
     pub(crate) fn add_readiness(&self, scheduler: &Scheduler, ready: Ready) {
         let old = self.readiness.get();
-        let add = old - ready;
+        let add = ready - old;
 
         self.readiness.set(old | ready);
 
