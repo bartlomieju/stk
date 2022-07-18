@@ -122,6 +122,8 @@ impl Driver {
 
                 resource.add_readiness(scheduler, Ready::from_mio(event));
             }
+
+            scheduler.tick();
         }
 
         Ok(())
