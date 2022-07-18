@@ -6,10 +6,11 @@ async fn process_socket(mut socket: TcpStream) {
     let res = b"HTTP/1.1 200 OK\r\nContent-length: 12\r\n\r\nHello world\n";
 
     loop {
-        let n = socket.read(&mut req).await.unwrap();
-        if n == 0 {
-            return;
-        }
+        let n = match socket.read(&mut req).await {
+            Ok(n) if n > 0 => n,
+            _ => return,
+        };
+
         socket.write_all(res).await.unwrap();
     }
 }
