@@ -90,6 +90,10 @@ impl Handle {
         self.inner.scheduler.spawn(task)
     }
 
+    pub(crate) fn scheduler(&self) -> &Scheduler {
+        &self.inner.scheduler
+    }
+
     /// Returns a reference to the I/O handle
     pub(crate) fn io(&self) -> &io::Handle {
         &self.inner.io

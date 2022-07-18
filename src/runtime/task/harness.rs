@@ -1,5 +1,6 @@
 use crate::runtime::task::waker::waker_ref;
 use crate::runtime::task::Header;
+use crate::runtime::Scheduler;
 
 use std::cell::RefCell;
 use std::future::Future;
@@ -36,11 +37,11 @@ impl<T: Future> Harness<T> {
         &*(header as *const _ as *const Harness<T>)
     }
 
-    pub fn poll(&self) {
+    pub fn poll(&self, scheduler: &Scheduler) {
         use State::*;
 
         // Build the waker
-        let waker = waker_ref::<T>(&self.header);
+        let waker = waker_ref(&self.header);
         let mut cx = Context::from_waker(&waker);
 
         let mut state = self.state.borrow_mut();

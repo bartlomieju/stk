@@ -1,9 +1,15 @@
-use crate::runtime::Task;
+mod interest;
+pub use interest::Interest;
+
+mod ready;
+pub use ready::Ready;
+
+use crate::runtime::{self, Scheduler, Task};
 
 use mio::event::Source;
-use mio::{Interest, Token};
+use mio::Token;
 use slab::Slab;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::io;
 use std::rc::Rc;
 
@@ -25,18 +31,27 @@ pub(crate) struct Driver {
 }
 
 pub(crate) struct Resource {
+    /// Handle to the runtime
+    ///
+    /// TODO: break cycle
+    rt: runtime::Handle,
+
     /// Which slot in the slab this resource is stored in.
     key: usize,
 
+    /// Current resource readiness
+    readiness: Cell<Ready>,
+
     /// Task to schedule on readable
     read_task: RefCell<Option<Task>>,
+
+    /// Task to schedule on writable
+    write_task: RefCell<Option<Task>>,
 }
 
 pub(crate) struct Registration {
     resource: Rc<Resource>,
 }
-
-pub(crate) struct Ready(usize);
 
 const INITIAL_RESOURCES_CAPACITY: usize = 256;
 const INITIAL_EVENTS_CAPACITY: usize = 1024;
@@ -60,6 +75,7 @@ pub(crate) fn driver() -> io::Result<(Driver, Handle)> {
 impl Handle {
     pub(crate) fn register(
         &self,
+        rt: &runtime::Handle,
         io: &mut impl Source,
         interest: Interest,
     ) -> io::Result<Registration> {
@@ -69,11 +85,15 @@ impl Handle {
         let entry = resources.vacant_entry();
 
         // Register the socket with mio
-        self.mio.register(io, Token(entry.key()), interest)?;
+        self.mio
+            .register(io, Token(entry.key()), interest.to_mio())?;
 
         let resource = Rc::new(Resource {
+            rt: rt.clone(),
             key: entry.key(),
+            readiness: Cell::new(Ready::EMPTY),
             read_task: RefCell::new(None),
+            write_task: RefCell::new(None),
         });
 
         Ok(Registration { resource })
@@ -84,12 +104,47 @@ impl Driver {}
 
 impl Registration {
     /// Wait for an I/O readiness event
-    pub(crate) async fn readiness(&self) -> io::Result<Ready> {
-        todo!();
+    pub(crate) async fn readiness(&self, interest: Interest) -> io::Result<Ready> {
+        use std::task::Poll;
+
+        crate::future::poll_fn(|cx| {
+            let ready = self.resource.readiness.get();
+            let ready = ready.intersection(interest);
+
+            if ready.is_empty() {
+                if ready.is_readable() {
+                    // Get the runtime task associated with the current waker
+                    let task = self
+                        .resource
+                        .rt
+                        .scheduler()
+                        .waker_to_task(cx.waker())
+                        .expect("TODO");
+                    *self.resource.read_task.borrow_mut() = Some(task);
+                }
+
+                if ready.is_writable() {
+                    let task = self
+                        .resource
+                        .rt
+                        .scheduler()
+                        .waker_to_task(cx.waker())
+                        .expect("TODO");
+                    *self.resource.write_task.borrow_mut() = Some(task);
+                }
+
+                return Poll::Pending;
+            }
+
+            Poll::Ready(Ok(ready))
+        })
+        .await
     }
 
     pub(crate) fn clear_readiness(&self, ready: Ready) {
-        todo!();
+        self.resource
+            .readiness
+            .set(self.resource.readiness.get() - ready);
     }
 
     pub(crate) async fn async_io<R>(
@@ -98,13 +153,35 @@ impl Registration {
         mut f: impl FnMut() -> io::Result<R>,
     ) -> io::Result<R> {
         loop {
-            let ready = self.readiness().await?;
+            let ready = self.readiness(interest).await?;
 
             match f() {
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
                     self.clear_readiness(ready);
                 }
                 x => return x,
+            }
+        }
+    }
+}
+
+impl Resource {
+    // Called by the I/O driver
+    pub(crate) fn add_readiness(&self, scheduler: &Scheduler, ready: Ready) {
+        let old = self.readiness.get();
+        let add = old - ready;
+
+        self.readiness.set(old | ready);
+
+        if add.is_readable() {
+            if let Some(task) = self.read_task.borrow_mut().take() {
+                scheduler.schedule(task);
+            }
+        }
+
+        if add.is_writable() {
+            if let Some(task) = self.write_task.borrow_mut().take() {
+                scheduler.schedule(task);
             }
         }
     }

@@ -9,8 +9,11 @@ use vtable::VTable;
 
 mod waker;
 
+use crate::runtime::Scheduler;
+
 use std::future::Future;
 use std::ptr::NonNull;
+use std::task::RawWaker;
 
 pub struct JoinHandle<T> {
     _p: std::marker::PhantomData<T>,
@@ -36,12 +39,26 @@ pub(crate) fn spawn<T: Future>(future: T) -> (Task, JoinHandle<T::Output>) {
 }
 
 impl Task {
-    pub(crate) fn poll(&self) {
-        self.header().poll();
+    pub(crate) fn poll(&self, scheduler: &Scheduler) {
+        self.header().poll(scheduler);
+    }
+
+    /// Return the raw waker for the this task
+    pub(crate) fn raw_waker(&self) -> RawWaker {
+        self.header().raw_waker()
     }
 
     fn header(&self) -> &Header {
         unsafe { self.header.as_ref() }
+    }
+}
+
+impl Clone for Task {
+    fn clone(&self) -> Task {
+        // TODO: Ref inc
+        Task {
+            header: self.header,
+        }
     }
 }
 

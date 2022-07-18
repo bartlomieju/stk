@@ -1,8 +1,7 @@
 use crate::net::TcpStream;
-use crate::runtime::io::Registration;
+use crate::runtime::io::{Interest, Registration};
 use crate::runtime::Handle;
 
-use mio::Interest;
 use std::io;
 use std::net::SocketAddr;
 
@@ -22,7 +21,9 @@ impl TcpListener {
 
     fn new(mut mio: mio::net::TcpListener) -> io::Result<TcpListener> {
         Handle::with_current(|handle| {
-            let registration = handle.io().register(&mut mio, Interest::READABLE)?;
+            let registration = handle
+                .io()
+                .register(&handle, &mut mio, Interest::READABLE)?;
             Ok(TcpListener { mio, registration })
         })
     }

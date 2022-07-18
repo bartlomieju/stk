@@ -1,6 +1,8 @@
 use crate::runtime::task::VTable;
+use crate::runtime::Scheduler;
 
 use std::future::Future;
+use std::task::RawWaker;
 
 #[repr(C)]
 pub(crate) struct Header {
@@ -15,7 +17,12 @@ impl Header {
         }
     }
 
-    pub(crate) fn poll(&self) {
-        (self.vtable.poll)(self)
+    pub(crate) fn poll(&self, scheduler: &Scheduler) {
+        (self.vtable.poll)(scheduler, self)
+    }
+
+    pub(crate) fn raw_waker(&self) -> RawWaker {
+        let ptr = self as *const _ as *const ();
+        RawWaker::new(ptr, self.vtable.waker_ref)
     }
 }
