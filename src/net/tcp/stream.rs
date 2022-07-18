@@ -54,6 +54,17 @@ impl TcpStream {
     pub async fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         use std::os::unix::io::AsRawFd;
 
+        let n = unsafe {
+            libc::send(
+                self.mio.as_raw_fd(),
+                buf.as_ptr() as _,
+                buf.len(),
+                libc::MSG_NOSIGNAL,
+            )
+        } as usize;
+        Ok(n)
+
+        /*
         self.registration
             .async_write(|| {
                 let n = unsafe {
@@ -67,6 +78,7 @@ impl TcpStream {
                 Ok(n)
             })
             .await
+            */
     }
 
     pub async fn write_all(&mut self, mut buf: &[u8]) -> io::Result<()> {
