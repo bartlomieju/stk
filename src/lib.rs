@@ -3,6 +3,7 @@ pub mod net;
 pub mod runtime;
 pub mod task;
 
+use runtime::Handle;
 use task::JoinHandle;
 
 use std::future::Future;
@@ -12,5 +13,5 @@ where
     T: Future + 'static,
     T::Output: 'static,
 {
-    todo!()
+    Handle::with_current(|handle| handle.scheduler().spawn(task))
 }
