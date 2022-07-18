@@ -29,6 +29,11 @@ impl TcpStream {
         loop {
             let ready = self.registration.readiness(Interest::READABLE).await?;
 
+            if ready.is_read_closed() {
+                // Nothing to read, just return.
+                return Ok(0);
+            }
+
             match self.mio.read(buf) {
                 Ok(0) => return Ok(0),
                 Ok(n) if n == buf.len() => return Ok(n),
