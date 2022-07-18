@@ -59,8 +59,8 @@ impl Scheduler {
 
     /// Schedule a task for execution
     pub(crate) fn schedule(&self, task: Task) {
-        // self.queue.borrow_mut().push_back(task);
-        self.run_task(task);
+        self.queue.borrow_mut().push_back(task);
+        // self.run_task(task);
     }
 
     /// Returns the `Task` representing the waker
