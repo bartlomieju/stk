@@ -29,10 +29,7 @@ impl TcpListener {
     }
 
     pub async fn accept(&self) -> io::Result<(TcpStream, SocketAddr)> {
-        let (mio, addr) = self
-            .registration
-            .async_io(Interest::READABLE, || self.mio.accept())
-            .await?;
+        let (mio, addr) = self.registration.async_read(|| self.mio.accept()).await?;
 
         let stream = TcpStream::new(mio)?;
         Ok((stream, addr))

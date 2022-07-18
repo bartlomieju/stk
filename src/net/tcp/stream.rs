@@ -1,4 +1,4 @@
-use crate::runtime::io::{Interest, Registration};
+use crate::runtime::io::{Interest, Ready, Registration};
 use crate::runtime::Handle;
 
 use std::io::{self, Read, Write};
@@ -27,7 +27,7 @@ impl TcpStream {
 
     pub async fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         loop {
-            let ready = self.registration.readiness(Interest::READABLE).await?;
+            let ready = self.registration.read_ready().await;
 
             if ready.is_read_closed() {
                 // Nothing to read, just return.
@@ -40,11 +40,11 @@ impl TcpStream {
                 Ok(n) => {
                     // Partial read indicates the socket buffer has been drained
                     // Clear readiness, but return anyway
-                    self.registration.clear_readiness(ready);
+                    self.registration.clear_readiness(Ready::READABLE);
                     return Ok(n);
                 }
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    self.registration.clear_readiness(ready);
+                    self.registration.clear_readiness(Ready::READABLE);
                 }
                 x => return x,
             }
@@ -55,7 +55,7 @@ impl TcpStream {
         use std::os::unix::io::AsRawFd;
 
         self.registration
-            .async_io(Interest::WRITABLE, || {
+            .async_write(|| {
                 let n = unsafe {
                     libc::send(
                         self.mio.as_raw_fd(),
@@ -64,7 +64,6 @@ impl TcpStream {
                         libc::MSG_NOSIGNAL,
                     )
                 } as usize;
-                assert!(n > 0);
                 Ok(n)
             })
             .await

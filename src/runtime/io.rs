@@ -129,41 +129,52 @@ impl Driver {
 }
 
 impl Registration {
-    /// Wait for an I/O readiness event
-    pub(crate) async fn readiness(&self, interest: Interest) -> io::Result<Ready> {
+    pub(crate) async fn read_ready(&self) -> Ready {
         use std::task::Poll;
 
         crate::future::poll_fn(|cx| {
             let ready = self.resource.readiness.get();
-            let ready = ready.intersection(interest);
 
-            if ready.is_empty() {
-                if interest.is_readable() {
-                    // Get the runtime task associated with the current waker
-                    let task = self
-                        .resource
-                        .rt
-                        .scheduler()
-                        .waker_to_task(cx.waker())
-                        .expect("TODO");
+            if ready.is_readable() {
+                Poll::Ready(ready)
+            } else {
+                // Get the runtime task associated with the current waker
+                let task = self
+                    .resource
+                    .rt
+                    .scheduler()
+                    .waker_to_task(cx.waker())
+                    .expect("TODO");
 
-                    *self.resource.read_task.borrow_mut() = Some(task);
-                }
+                *self.resource.read_task.borrow_mut() = Some(task);
 
-                if interest.is_writable() {
-                    let task = self
-                        .resource
-                        .rt
-                        .scheduler()
-                        .waker_to_task(cx.waker())
-                        .expect("TODO");
-                    *self.resource.write_task.borrow_mut() = Some(task);
-                }
-
-                return Poll::Pending;
+                Poll::Pending
             }
+        })
+        .await
+    }
 
-            Poll::Ready(Ok(ready))
+    pub(crate) async fn write_ready(&self) -> Ready {
+        use std::task::Poll;
+
+        crate::future::poll_fn(|cx| {
+            let ready = self.resource.readiness.get();
+
+            if ready.is_writable() {
+                Poll::Ready(ready)
+            } else {
+                // Get the runtime task associated with the current waker
+                let task = self
+                    .resource
+                    .rt
+                    .scheduler()
+                    .waker_to_task(cx.waker())
+                    .expect("TODO");
+
+                *self.resource.write_task.borrow_mut() = Some(task);
+
+                Poll::Pending
+            }
         })
         .await
     }
@@ -174,17 +185,32 @@ impl Registration {
             .set(self.resource.readiness.get() - ready);
     }
 
-    pub(crate) async fn async_io<R>(
+    pub(crate) async fn async_read<R>(
         &self,
-        interest: Interest,
         mut f: impl FnMut() -> io::Result<R>,
     ) -> io::Result<R> {
         loop {
-            let ready = self.readiness(interest).await?;
+            let ready = self.read_ready().await;
 
             match f() {
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    self.clear_readiness(ready);
+                    self.clear_readiness(Ready::READABLE);
+                }
+                x => return x,
+            }
+        }
+    }
+
+    pub(crate) async fn async_write<R>(
+        &self,
+        mut f: impl FnMut() -> io::Result<R>,
+    ) -> io::Result<R> {
+        loop {
+            let ready = self.write_ready().await;
+
+            match f() {
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    self.clear_readiness(Ready::WRITABLE);
                 }
                 x => return x,
             }
