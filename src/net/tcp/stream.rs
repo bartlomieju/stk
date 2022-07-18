@@ -47,8 +47,21 @@ impl TcpStream {
     }
 
     pub async fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        use std::os::unix::io::AsRawFd;
+
         self.registration
-            .async_io(Interest::WRITABLE, || self.mio.write(buf))
+            .async_io(Interest::WRITABLE, || {
+                let n = unsafe {
+                    libc::send(
+                        self.mio.as_raw_fd(),
+                        buf.as_ptr() as _,
+                        buf.len(),
+                        libc::MSG_NOSIGNAL,
+                    )
+                } as usize;
+                assert!(n > 0);
+                Ok(n)
+            })
             .await
     }
 
