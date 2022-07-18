@@ -21,6 +21,10 @@ impl TcpStream {
         })
     }
 
+    pub fn set_nodelay(&self, nodelay: bool) -> io::Result<()> {
+        self.mio.set_nodelay(nodelay)
+    }
+
     pub async fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         loop {
             let ready = self.registration.readiness(Interest::READABLE).await?;
