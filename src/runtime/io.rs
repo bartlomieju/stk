@@ -130,6 +130,7 @@ impl Driver {
 
 impl Registration {
     pub(crate) async fn read_ready(&self) -> Ready {
+        /*
         use std::task::Poll;
 
         crate::future::poll_fn(|cx| {
@@ -152,6 +153,8 @@ impl Registration {
             }
         })
         .await
+        */
+        self.resource.readiness.get()
     }
 
     pub(crate) async fn write_ready(&self) -> Ready {
@@ -185,16 +188,70 @@ impl Registration {
             .set(self.resource.readiness.get() - ready);
     }
 
+    pub(crate) async fn clear_readable(&self) {
+        use std::task::Poll;
+
+        self.clear_readiness(Ready::READABLE);
+
+        crate::future::poll_fn(|cx| {
+            let ready = self.resource.readiness.get();
+
+            if ready.is_readable() {
+                Poll::Ready(())
+            } else {
+                // Get the runtime task associated with the current waker
+                let task = self
+                    .resource
+                    .rt
+                    .scheduler()
+                    .waker_to_task(cx.waker())
+                    .expect("TODO");
+
+                *self.resource.read_task.borrow_mut() = Some(task);
+
+                Poll::Pending
+            }
+        })
+        .await
+    }
+
+    pub(crate) async fn clear_writable(&self) {
+        use std::task::Poll;
+
+        self.clear_readiness(Ready::WRITABLE);
+
+        crate::future::poll_fn(|cx| {
+            let ready = self.resource.readiness.get();
+
+            if ready.is_writable() {
+                Poll::Ready(())
+            } else {
+                // Get the runtime task associated with the current waker
+                let task = self
+                    .resource
+                    .rt
+                    .scheduler()
+                    .waker_to_task(cx.waker())
+                    .expect("TODO");
+
+                *self.resource.write_task.borrow_mut() = Some(task);
+
+                Poll::Pending
+            }
+        })
+        .await
+    }
+
     pub(crate) async fn async_read<R>(
         &self,
         mut f: impl FnMut() -> io::Result<R>,
     ) -> io::Result<R> {
         loop {
-            let ready = self.read_ready().await;
+            // let ready = self.read_ready().await;
 
             match f() {
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    self.clear_readiness(Ready::READABLE);
+                    self.clear_readable().await;
                 }
                 x => return x,
             }
@@ -206,11 +263,11 @@ impl Registration {
         mut f: impl FnMut() -> io::Result<R>,
     ) -> io::Result<R> {
         loop {
-            let ready = self.write_ready().await;
+            // let ready = self.write_ready().await;
 
             match f() {
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    self.clear_readiness(Ready::WRITABLE);
+                    self.clear_writable().await;
                 }
                 x => return x,
             }
