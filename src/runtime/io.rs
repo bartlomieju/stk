@@ -112,15 +112,18 @@ impl Driver {
             Err(e) => return Err(e),
         }
 
-        let resources = handle.resources.borrow();
-
         for event in self.events.iter() {
-            let resource = match resources.get(event.token().0) {
-                Some(resource) => resource,
-                None => continue,
-            };
+            {
+                let resources = handle.resources.borrow();
+                let resource = match resources.get(event.token().0) {
+                    Some(resource) => resource,
+                    None => continue,
+                };
 
-            resource.add_readiness(scheduler, Ready::from_mio(event));
+                resource.add_readiness(scheduler, Ready::from_mio(event));
+            }
+
+            scheduler.tick();
         }
 
         Ok(())

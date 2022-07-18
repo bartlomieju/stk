@@ -26,16 +26,19 @@ impl Scheduler {
 
     pub(crate) fn run(&self, handle: &Handle, driver: &mut Driver) {
         loop {
-            loop {
-                let task = match self.next_scheduled_task() {
-                    Some(task) => task,
-                    None => break,
-                };
-
-                self.run_task(task);
-            }
-
+            self.tick();
             driver.park(handle, self).unwrap();
+        }
+    }
+
+    pub(crate) fn tick(&self) {
+        loop {
+            let task = match self.next_scheduled_task() {
+                Some(task) => task,
+                None => return,
+            };
+
+            self.run_task(task);
         }
     }
 
