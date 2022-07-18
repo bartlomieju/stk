@@ -39,7 +39,7 @@ pub(crate) struct Resource {
     rt: runtime::Handle,
 
     /// Which slot in the slab this resource is stored in.
-    key: usize,
+    // key: usize,
 
     /// Current resource readiness
     readiness: Cell<Ready>,
@@ -83,22 +83,22 @@ impl Handle {
     ) -> io::Result<Registration> {
         // Reserve a new slot for the new resource. We will be using the key as
         // the mio token.
-        let mut resources = self.resources.borrow_mut();
-        let entry = resources.vacant_entry();
-
-        // Register the socket with mio
-        self.mio
-            .register(io, Token(entry.key()), interest.to_mio())?;
+        // let mut resources = self.resources.borrow_mut();
+        // let entry = resources.vacant_entry();
 
         let resource = Rc::new(Resource {
             rt: rt.clone(),
-            key: entry.key(),
+            // key: entry.key(),
             readiness: Cell::new(Ready::EMPTY),
             read_task: RefCell::new(None),
             write_task: RefCell::new(None),
         });
 
-        entry.insert(resource.clone());
+        // Leak
+        let ptr = Rc::into_raw(resource.clone());
+
+        // Register the socket with mio
+        self.mio.register(io, Token(ptr as _), interest.to_mio())?;
 
         Ok(Registration { resource })
     }
@@ -114,16 +114,20 @@ impl Driver {
 
         for event in self.events.iter() {
             {
+                /*
                 let resources = handle.resources.borrow();
                 let resource = match resources.get(event.token().0) {
                     Some(resource) => resource,
                     None => continue,
                 };
+                */
 
-                resource.add_readiness(scheduler, Ready::from_mio(event));
+                let resource = event.token().0 as *const Resource;
+
+                unsafe {
+                    (*resource).add_readiness(scheduler, Ready::from_mio(event));
+                }
             }
-
-            scheduler.tick();
         }
 
         Ok(())
@@ -229,13 +233,15 @@ impl Resource {
         self.readiness.set(old | ready);
 
         if add.is_readable() {
-            if let Some(task) = self.read_task.borrow_mut().take() {
+            let maybe_task = self.read_task.borrow_mut().take();
+            if let Some(task) = maybe_task {
                 scheduler.schedule(task);
             }
         }
 
         if add.is_writable() {
-            if let Some(task) = self.write_task.borrow_mut().take() {
+            let maybe_task = self.write_task.borrow_mut().take();
+            if let Some(task) = maybe_task {
                 scheduler.schedule(task);
             }
         }
