@@ -11,7 +11,7 @@ async fn process_socket(mut socket: TcpStream) {
             _ => return,
         }
 
-        socket.write_all(res).await.unwrap();
+        socket.write(res).await.unwrap();
     }
 }
 
