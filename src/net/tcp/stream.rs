@@ -16,7 +16,7 @@ impl TcpStream {
             let registration =
                 handle
                     .io()
-                    .register(&handle, &mut mio, Interest::READABLE | Interest::WRITABLE)?;
+                    .register(&handle, &mut mio, Interest::READABLE)?;
             Ok(TcpStream { mio, registration })
         })
     }
