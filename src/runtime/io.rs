@@ -11,6 +11,7 @@ use mio::Token;
 use slab::Slab;
 use std::cell::{Cell, RefCell};
 use std::io;
+use std::task::{self, Poll};
 use std::rc::Rc;
 
 pub(crate) use std::io::Result;
@@ -136,33 +137,33 @@ impl Driver {
 
 impl Registration {
     pub(crate) async fn read_ready(&self) -> Ready {
-        use std::task::Poll;
-
         crate::future::poll_fn(|cx| {
-            let ready = self.resource.readiness.get();
-
-            if ready.is_readable() {
-                Poll::Ready(ready)
-            } else {
-                // Get the runtime task associated with the current waker
-                let task = self
-                    .resource
-                    .rt
-                    .scheduler()
-                    .waker_to_task(cx.waker())
-                    .expect("TODO");
-
-                *self.resource.read_task.borrow_mut() = Some(task);
-
-                Poll::Pending
-            }
+            self.poll_read_ready(cx)
         })
         .await
     }
 
-    pub(crate) async fn write_ready(&self) -> Ready {
-        use std::task::Poll;
+    pub(crate) fn poll_read_ready(&self, cx: &mut task::Context<'_>) -> Poll<Ready> {
+        let ready = self.resource.readiness.get();
 
+        if ready.is_readable() {
+            Poll::Ready(ready)
+        } else {
+            // Get the runtime task associated with the current waker
+            let task = self
+                .resource
+                .rt
+                .scheduler()
+                .waker_to_task(cx.waker())
+                .expect("TODO");
+
+            *self.resource.read_task.borrow_mut() = Some(task);
+
+            Poll::Pending
+        }
+    }
+
+    pub(crate) async fn write_ready(&self) -> Ready {
         crate::future::poll_fn(|cx| {
             let ready = self.resource.readiness.get();
 
