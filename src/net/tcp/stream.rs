@@ -84,7 +84,10 @@ impl TcpStream {
                 self.mio.as_raw_fd(),
                 buf.as_ptr() as _,
                 buf.len(),
+                #[cfg(os = "linux")]
                 libc::MSG_NOSIGNAL,
+                #[cfg(not(os = "linux"))]
+                0,
             )
         } as usize;
         Ok(n)
