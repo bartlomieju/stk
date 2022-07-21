@@ -1,28 +1,45 @@
 use crate::runtime::io::{Interest, Ready, Registration};
 use crate::runtime::Handle;
 
+use std::fmt;
 use std::io::{self, Read, Write};
+use std::net::SocketAddr;
 use std::task::{self, Poll};
 use std::pin::Pin;
-
+use std::os::unix::io::RawFd;
+use std::os::unix::io::AsRawFd;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 pub struct TcpStream {
     mio: mio::net::TcpStream,
 
+    addr: SocketAddr,
+
     /// Socket registered with the I/O driver
     registration: Registration,
 }
 
+
+impl fmt::Debug for TcpStream {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TcpStream")
+         .finish()
+    }
+}
+
 impl TcpStream {
-    pub(crate) fn new(mut mio: mio::net::TcpStream) -> io::Result<TcpStream> {
+    pub(crate) fn new(mut mio: mio::net::TcpStream, addr: SocketAddr) -> io::Result<TcpStream> {
         Handle::with_current(|handle| {
             let registration =
                 handle
                     .io()
                     .register(&handle, &mut mio, Interest::READABLE)?;
-            Ok(TcpStream { mio, registration })
+            Ok(TcpStream { mio, registration, addr })
         })
+    }
+
+    pub fn local_addr(&self) -> std::io::Result<SocketAddr> {
+        Ok(self.addr)
     }
 
     pub fn set_nodelay(&self, nodelay: bool) -> io::Result<()> {
@@ -31,6 +48,10 @@ impl TcpStream {
 
     pub async fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         crate::future::poll_fn(|cx| self.poll_read_inner(cx, buf)).await
+    }
+
+    pub fn poll_peek(&mut self, cx: &mut task::Context<'_>, buf: &mut tokio::io::ReadBuf<'_>) -> Poll<io::Result<usize>> {
+        todo!()
     }
 
     fn poll_read_inner(&mut self, cx: &mut task::Context<'_>, buf: &mut [u8])
@@ -77,8 +98,6 @@ impl TcpStream {
     }
 
     fn write_inner(&mut self, buf: &[u8]) -> io::Result<usize> {
-        use std::os::unix::io::AsRawFd;
-
         let n = unsafe {
             libc::send(
                 self.mio.as_raw_fd(),
@@ -105,6 +124,12 @@ impl TcpStream {
         }
 
         Ok(())
+    }
+}
+
+impl AsRawFd for TcpStream {
+    fn as_raw_fd(&self) -> RawFd {
+        todo!()
     }
 }
 
